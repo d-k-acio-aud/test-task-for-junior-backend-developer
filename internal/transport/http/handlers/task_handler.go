@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -31,6 +32,7 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      req.Status,
+		Recurrence:  recurrenceToInput(req.Recurrence),
 	})
 	if err != nil {
 		writeUsecaseError(w, err)
@@ -73,6 +75,7 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Title:       req.Title,
 		Description: req.Description,
 		Status:      req.Status,
+		Recurrence:  recurrenceToInput(req.Recurrence),
 	})
 	if err != nil {
 		writeUsecaseError(w, err)
@@ -107,6 +110,33 @@ func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
 	response := make([]taskDTO, 0, len(tasks))
 	for i := range tasks {
 		response = append(response, newTaskDTO(&tasks[i]))
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (h *TaskHandler) GenerateForDate(w http.ResponseWriter, r *http.Request) {
+	rawDate := r.URL.Query().Get("date")
+	if rawDate == "" {
+		writeError(w, http.StatusBadRequest, errors.New("date query param is required"))
+		return
+	}
+
+	date, err := time.Parse("2006-01-02", rawDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, errors.New("date must have YYYY-MM-DD format"))
+		return
+	}
+
+	created, err := h.usecase.GenerateForDate(r.Context(), date)
+	if err != nil {
+		writeUsecaseError(w, err)
+		return
+	}
+
+	response := make([]taskDTO, 0, len(created))
+	for i := range created {
+		response = append(response, newTaskDTO(&created[i]))
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -163,4 +193,19 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func recurrenceToInput(recurrence *recurrenceDTO) *taskusecase.RecurrenceInput {
+	if recurrence == nil {
+		return nil
+	}
+
+	return &taskusecase.RecurrenceInput{
+		Type:          recurrence.Type,
+		EveryNDays:    recurrence.EveryNDays,
+		DayOfMonth:    recurrence.DayOfMonth,
+		SpecificDates: recurrence.SpecificDates,
+		Parity:        recurrence.Parity,
+		StartDate:     recurrence.StartDate,
+	}
 }
